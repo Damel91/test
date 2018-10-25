@@ -7,14 +7,16 @@
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
 #include "Wire.h"
 #endif
-
+bool dataReady = false;
 double totalSpeed;
 double acc;
 double pitch;
 float adjustAngle = 0.00;
 float speedRobot = 0.00;
+float ypr[3];
 unsigned long dmpTimer;
-
+unsigned long time = 10;
+double offset = 0.00;
 MPU6050 mpu;
 
 // MPU control/status vars
@@ -45,7 +47,7 @@ void setup() {
 
   // initialize device
   mpu.initialize();
-
+//mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_16);
   // load and configure the DMP
   Serial.println(F("Initializing DMP..."));
   devStatus = mpu.dmpInitialize();
@@ -55,7 +57,6 @@ void setup() {
   mpu.setYGyroOffset(76);
   mpu.setZGyroOffset(-85);
   mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
-  //mpu.setXAccelOffset(+40);
 
   // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
@@ -81,9 +82,16 @@ void setup() {
 
 void loop() {
   dmpData();
-  //Serial.println(pitch);
-  //double acceleration = aaReal.x/1000.00;
-  Serial.println(totalSpeed - 13.68 -14330.00);
+  if (millis() <= 30000) {
+    offset = totalSpeed;
+    adjustAngle = ypr[1];
+  } else {
+    dataReady = true;
+  }
+
+  //Serial.println(totalSpeed - offset);
+  Serial.println(pitch);
+
 }
 
 
@@ -116,23 +124,25 @@ void dmpData() {
       // track FIFO count here in case there is > 1 packet available
       // (this lets us immediately read more without waiting for an interrupt)
       fifoCount -= packetSize;
-      float ypr[3];
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
       ypr[1] = ypr[1] * 180 / M_PI;
-      pitch = adjustAngle + ypr[1] + speedRobot;
+      pitch = ypr[1] - adjustAngle;
       mpu.dmpGetAccel(&aa, fifoBuffer);
       mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
       mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
       //speed = a * t
       unsigned long now = millis();
-      if (now - dmpTimer > 5) {
+      if (now - dmpTimer > time) {
+        //time = now - dmpTimer;
         dmpTimer = now;
-        double time = 0.005;
-        acc = aaWorld.x  /*cos(fabs(pitch))*/;
-        //precAcc = acc;
-        double speed = time * acc;
+        if (dataReady) {
+          acc = aaWorld.x / 100.00 * cos(fabs(pitch));
+        } else {
+          acc = aaWorld.x / 100.00;
+        }
+        double speed = time / 1000.00 * acc;
         /*
           if (acc < 0.00) {
           if (acc > precAcc) {
