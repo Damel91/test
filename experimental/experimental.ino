@@ -28,6 +28,7 @@ Quaternion q;           // [w, x, y, z]         quaternion container
 VectorFloat gravity;    // [x, y, z]            gravity vector
 VectorInt16 aa; // [x, y, z]            accel sensor measurements
 VectorInt16 aaReal; // [x, y, z]            gravity-free accel sensor measurements
+VectorInt16 aaWorld;
 
 
 
@@ -54,6 +55,7 @@ void setup() {
   mpu.setYGyroOffset(76);
   mpu.setZGyroOffset(-85);
   mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
+  //mpu.setXAccelOffset(+40);
 
   // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
@@ -79,8 +81,9 @@ void setup() {
 
 void loop() {
   dmpData();
-  Serial.println(pitch);
-  Serial.println(totalSpeed);
+  //Serial.println(pitch);
+  //double acceleration = aaReal.x/1000.00;
+  Serial.println(totalSpeed - 13.68 -14330.00);
 }
 
 
@@ -121,12 +124,13 @@ void dmpData() {
       pitch = adjustAngle + ypr[1] + speedRobot;
       mpu.dmpGetAccel(&aa, fifoBuffer);
       mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+      mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
       //speed = a * t
       unsigned long now = millis();
       if (now - dmpTimer > 5) {
         dmpTimer = now;
-        double time = dmpTimer / 1000;
-        acc = aaReal.x /** cos(fabs(pitch))*/;
+        double time = 0.005;
+        acc = aaWorld.x  /*cos(fabs(pitch))*/;
         //precAcc = acc;
         double speed = time * acc;
         /*
@@ -144,7 +148,7 @@ void dmpData() {
           }
           }
         */
-        totalSpeed = speed + totalSpeed;
+        totalSpeed = (speed + totalSpeed);
       }
     }
   }
