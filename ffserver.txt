@@ -1,0 +1,121 @@
+ RTSPPort 8000
+BindAddress 0.0.0.0
+MaxBandwidth 1000
+MaxClients 3
+CustomLog lox.txt
+
+<Feed audio.ffm>
+File audio.ffm
+ACL allow 127.0.0.1
+FileMaxSize 0
+</feed>
+
+<Stream test>
+Feed audio.ffm
+Format mp3
+NoVideo
+AudioCodec copy
+AudioChannels 2
+AudioBitRate 128
+AudioSampleRate 48000
+</stream>
+
+<Redirect index.html>
+URL http://www.ffmpeg.org/
+</Redirect>
+
+rec -r 48000 -c 2 -G -t mp3 - | ffmpeg -i - -acodec copy rtsp://127.0.0.1:8000/audio.ffm
+
+rec --buffer 2000000  -r 48000 -c 2 -G -t wav - | ffmpeg -y  -acodec aac -b:a 256 -ac 2  -i - -vcodec copy  -f video4linux2 -i /dev/video0  -f mp4 test.mp4
+sudo modeprobe bcm2835-v4l2
+icecast -b
+icecast://source@hackme:raspberry:8000/stream.mp4
+v4l2-ctl --set-fmt-video=width=1280,height=720,pixelformat=4
+rec --buffer 2000000  -r 48000 -c 2 -G -t wav - | ffmpeg -y -i -  -acodec aac  -ac 2   -f video4linux2 -i /dev/video0 -vcodec copy  -f mp4 test.mp4
+cvlc v4l2:///dev/video0:chroma=h264:width=1280:height=720:fps=30 --packetizer h264  --sout '#standard{access=http,mux=ts,dst=:8090/}' --demux=h264  -vvv
+
+raspivid -o - -t 0 -hf -w 1920  -h 1080 -fps 29 -b 5000000 -n  - | cvlc -vvv stream:///dev/stdin --sout '#standard{access=http,mux=ts,dst=:8090}' :demux=h264 & rec -r 48000 -c 2 -G -t s32 - | cvlc -vvv stream:///dev/stdin --sout '#standard{access=http,mux=ogg,dst=:8091}'--intf dummy
+
+
+
+
+
+rec -r 48000 -c 2 -G -t mp3 pipe & raspivid -o - -t 0 -hf -w 1280  -h 720 -fps 25 -n | cvlc -vvv stream:///dev/stdin --input-slave=pipe --sout '#standard{access=http,mux=ts,dst=:8090}' --intf dummy :demux=h264
+
+ raspivid -o - -t 0 -hf -w 1280  -h 720 -fps 25 -b 1200000 -n | cvlc -vvv stream:///dev/stdin  --input-slave=alsa://dmic_hw --sout '#standard{access=http,mux=ts,dst=:8090}' --intf dummy :demux=h264
+
+
+
+ raspivid -o - -t 0 -w 1920  -h 1080 -hf -fps 29 -b 5000000 -n | cvlc -vvv stream:///dev/stdin --sout '#standard{access=http,mux=ts,dst=:8090}' :demux=h264 & rec -r 48000 -c 2 -C 320 -G -t mp3 - | cvlc -vvv stream:///dev/stdin --sout '#standard{access=http,mux=ogg,dst=:8091}' --intf dummy
+
+
+
+Working:
+rec  -r 48000 -c2 -C 320  -G -t mp3  pipe | raspivid -o - -t 0 -w 1920 -h 1080 -fps 29 -n -b 5000000 | ffmpeg -thread_queue_size 1024 -use_wallclock_as_timestamps 1  -i -  -thread_queue_size 1024 -i pipe -vcodec copy -b:v 5000k  -r 29 -s 1920x1080  -acodec copy -b:a 320k -ar 48000 -ac 2 -map 0:0 -map 1:0  -f mpegts icecast://source:hackme@127.0.0.1:8000/stream.ts
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 29 -b 5000000 -n | cvlc -vvv stream:///dev/stdin --sout '#standard{access=http,mux=ts,dst=:8090}' :demux=h264 | rec -r 48000 -c 2 -C 320 -G -t mp3 - | cvlc -vvv stream:///dev/stdin --sout '#standard{access=http,mux=ogg,dst=:8091}' --intf dummy
+
+
+last
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 29 -b 5000000 -n | cvlc stream:///dev/stdin --sout '#rtp{mux=ts,dst=192.168.0.17, port=7000}' :demux=h264 | arecord -f S32_LE  -r 48000 -c 2 -t wav - | cvlc  stream:///dev/stdin --sout '#transcode{acodec=mp3,samplerate=48000,channels=2,ab=320}:rtp{mux=ts,dst=192.168.0.17,port=7001}' --intf dummy
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 29 -b 5000000 -n | cvlc stream:///dev/stdin --sout '#rtp{mux=ts,dst=192.168.1.19, port=7000}' :demux=h264 | rec -r 48000 -c 2 -C 320 -G -t mp3 - | cvlc  stream:///dev/stdin --sout ':rtp{mux=ts,dst=192.168.1.19,port=7001}' --intf dummy
+
+
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 2000000 -n | cvlc  stream:///dev/stdin --sout :input-slave=alsa://default :live-caching=300 ':sout=#transcode{acodec=mp3,ab=192,channels=2,samplerate=44100}:rtp{sdp=rtsp://192.168.1.18:8001/front.dsp}' :demux=h264 :demux=mp3 --intf dummy
+
+
+cvlc -vvv alsa://dmic_hw --sout '#transcode{acodec=mp3,samplerate=48000,channels=2,ab=320}:rtp{sdp=rtsp://192.168.1.18:8001/front.dsp}' --intf dummy
+
+arecord -f S32_LE  -r 48000 -c 2 -t wav - | cvlc  stream:///dev/stdin --sout '#transcode{acodec=mp3,samplerate=48000,channels=2,ab=320}:rtp{sdp=rtsp://192.168.1.18:8001/front.dsp}' --intf dummy
+
+cvlc -vvv  alsa://dmic_hw :live-caching=300 :sout='#transcode{acodec=mp3,samplerate=48000,channels=2,ab=320}:rtp{dst=192.168.1.19,port=7000}' --intf dummy
+
+rtsp://192.168.1.18:8000/front.dsp
+
+cvlc -vvv alsa://dmic_sv --sout '#transcode{acodec=ulaw,samerate=8000,ab=128}:rtp{dst=192.168.1.19,port=7000}'
+
+rec -r 48000 -c 2 -C 320 -G -t mp3 - | cvlc -vvv stream:///dev/stdin --sout ':rtp{mux=ts,dst=192.168.1.19,port=7001}' --intf dummy
+
+
+rec -r 48000 -c 2 -C 320 -G -t mp3 pipe | raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 2000000 -n | cvlc -vvv  stream:///dev/stdin :demux=h264 --sout :input-slave=pipe :demux=mp3 :live-caching=300 ':sout=#rtp{sdp=rtsp://192.168.1.18:8001/front.dsp}'
+rec -r 48000 -c 2 -C 320 -G -t mp3 - | cvlc -vvv stream:///dev/stdin --sout '#rtp{sdp=rtsp://192.168.1.18:8000/front.dsp}' :demux=mp3  --intf dummy
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 3000000 -n | cvlc stream:///dev/stdin --sout '#rtp{sdp=rtsp://192.168.1.18:8000/front.dsp}' :demux=h264 | rec -r 48000 -c 2 -C 320 -G -t mp3 - | cvlc -vvv stream:///dev/stdin --sout '#rtp{sdp=rtsp://192.168.1.18:8001/front.dsp}' :demux=mp3  --intf dummy
+
+arecord -f S32_LE  -r 48000 -c 2 -t wav pipe | raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 3000000 -n | cvlc  stream:///dev/stdin --sout :input-slave=pipe :live-caching=300 ':sout=#transcode{acodec=mp3,ab=192,channels=2,samplerate=44100}:rtp{sdp=rtsp://192.168.1.18:8001/front.dsp, mux=ts}' :demux=h264 :demux=wav --intf dummy
+
+
+the last one working now
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 3000000 -n | cvlc stream:///dev/stdin --sout '#rtp{sdp=rtsp://192.168.1.18:8000/front.dsp}' :demux=h264 | arecord -D dmic_sv -f S32_LE  -r 48000 -c 2 -t wav - | cvlc -vvv  stream:///dev/stdin --sout '#transcode{acodec=mp3,samplerate=48000,channels=2,ab=320}:rtp{sdp=rtsp://192.168.1.18:8001/front.dsp, mux=ts}' :demux=wav --intf dummy
+
+
+
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 5000000 -n | cvlc stream:///dev/stdin --sout '#rtp{sdp=rtsp://0.0.0.0:8000/front.dsp},select="noaudio"' :demux=h264 | arecord -D dmic_sv -f S32_LE -r 48000 -c 2 - | cvlc -vvv stream:///dev/stdin :demux=any --sout '#transcode{acodec=mpga,samplerate=48000,channels=2,ab=256}:rtp{sdp=rtsp://0.0.0.0:8000/front.dsp, mux=mpeg1},select="novideo"' --intf dummy
+
+
+
+without the need of specify server ip
+raspivid -o - -t 0 -w 1920  -h 1080 -ex auto -fps 25 -b 5000000 -n | cvlc stream:///dev/stdin --sout '#rtp{sdp=rtsp://0.0.0.0:8000/front.dsp},select="noaudio"' :demux=h264 | arecord -D dmic_sv -f S32_LE -r 48000 -c 2 - | cvlc stream:///dev/stdin :demux=any --sout '#transcode{acodec=mpga,samplerate=48000,channels=2,ab=256}:rtp{sdp=rtsp://0.0.0.0:8001/front.dsp, mux=mpeg1},select="novideo"' --intf dummy
+
+
+
+raspivid -o - -t 0 -hf -w 1280  -h 720 -fps 25 -b 1200000 -n | cvlc -vvv stream:///dev/stdin --demux=h264 --input-slave=alsa://rate_convert --demux=rawaud--rawaud-format = s16le --sout '#transcode{vcodec= mp1v, acodec=mpga,samplerate=48000,channels=2,ab=256}:rtp{sdp=rtsp://0.0.0.0:8001/front.dsp, mux=ogg}'
+
+
+
+sudo modprobe bcm2835-v4l2
+cvlc v4l2:///dev/video0 :v4l2-standard=ALL :input-slave=alsa://hw:0,0 :live-caching=300  ':sout=#transcode{vcodec=mp4v,vb=3500,width=1920,height=1080,acodec=mp3,ab=192,channels=2,samplerate=44100}:http{mux=ts,dst=:8080/}'
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+
+
