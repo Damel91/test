@@ -7,16 +7,24 @@
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
 #include "Wire.h"
 #endif
-bool dataReady = false;
-double totalSpeed;
+
+#define INTERRUPT_PIN 2
+
+volatile bool dataReady = false;
+float totalSpeed;
 double acc;
 double pitch;
+double timer;
 float adjustAngle = 0.00;
 float speedRobot = 0.00;
 float ypr[3];
+bool dmpReady;
 unsigned long dmpTimer;
+unsigned long counter;
 unsigned long time = 10;
 double offset = 0.00;
+double realSpeed;
+int temp;
 MPU6050 mpu;
 
 // MPU control/status vars
@@ -47,7 +55,7 @@ void setup() {
 
   // initialize device
   mpu.initialize();
-//mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_16);
+  pinMode(INTERRUPT_PIN, INPUT);
   // load and configure the DMP
   Serial.println(F("Initializing DMP..."));
   devStatus = mpu.dmpInitialize();
@@ -56,7 +64,8 @@ void setup() {
   mpu.setXGyroOffset(220);
   mpu.setYGyroOffset(76);
   mpu.setZGyroOffset(-85);
-  mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
+  mpu.setZAccelOffset(1717); // 1688 factory default for my test chip
+  mpu.setXAccelOffset(-2126);
 
   // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
@@ -65,6 +74,7 @@ void setup() {
     mpu.setDMPEnabled(true);
 
     // enable Arduino interrupt detection
+    attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), dmpDataReady, RISING);
     mpuIntStatus = mpu.getIntStatus();
 
     // get expected DMP packet size for later comparison
@@ -82,32 +92,29 @@ void setup() {
 
 void loop() {
   dmpData();
-  if (millis() <= 30000) {
-    offset = totalSpeed;
-    adjustAngle = ypr[1];
-  } else {
-    dataReady = true;
-  }
-
-  //Serial.println(totalSpeed - offset);
-  Serial.println(pitch);
+  String all = String(totalSpeed) + " " + String(pitch) + " " + String(acc);
+  /*
+    all = all + aa.y + " ";
+    all = all + aa.z;
+  */
+  Serial.println(all);
+  //Serial.println(pitch);
 
 }
 
+void dmpDataReady() {
+  dmpReady = true;
+}
 
 
 void dmpData() {
-  //unsigned long now = millis();
-  //if (now - dmpTimer >= sampleTime) {
-  //dmpTimer = now;
-  //sensorDataSync = true;
-  mpuIntStatus = mpu.getIntStatus();
-  if (mpuIntStatus & 0x02 || fifoCount >= packetSize) {
+  if (dmpReady || fifoCount >= packetSize) {
     // reset interrupt flag and get INT_STATUS byte
-    //dmpReady = false;
+    dmpReady = false;
     // get current FIFO count
     fifoCount = mpu.getFIFOCount();
     // check for overflow (this should never happen unless our code is too inefficient)
+    mpuIntStatus = mpu.getIntStatus();
     if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
       // reset so we can continue cleanly
       mpu.resetFIFO();
@@ -128,37 +135,26 @@ void dmpData() {
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
       ypr[1] = ypr[1] * 180 / M_PI;
+      if (millis() <= 30000) {
+        adjustAngle = ypr[1];
+      } else {
+        dataReady = true;
+      }
       pitch = ypr[1] - adjustAngle;
       mpu.dmpGetAccel(&aa, fifoBuffer);
       mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-      mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-      //speed = a * t
-      unsigned long now = millis();
-      if (now - dmpTimer > time) {
-        //time = now - dmpTimer;
-        dmpTimer = now;
-        if (dataReady) {
-          acc = aaWorld.x / 100.00 * cos(fabs(pitch));
-        } else {
-          acc = aaWorld.x / 100.00;
+      /*
+        if (!dataReady) {
+        offset = aaReal.x;
         }
-        double speed = time / 1000.00 * acc;
-        /*
-          if (acc < 0.00) {
-          if (acc > precAcc) {
-            totalSpeed = totalSpeed + fabs(speed);
-          } else {
-            totalSpeed = speed + totalSpeed;
-          }
-          } else {
-          if (acc < precAcc) {
-            totalSpeed = totalSpeed - speed;
-          } else {
-            totalSpeed = speed + totalSpeed;
-          }
-          }
-        */
-        totalSpeed = (speed + totalSpeed);
+      */
+      //speed = a * t
+      if (dataReady) {
+        unsigned long now = millis();
+        timer = (now - dmpTimer) / 1000.00;
+        dmpTimer = now;
+        acc = (round(aaReal.x / 8.353515216715188) / 100.00);
+        totalSpeed += (acc * timer);
       }
     }
   }
