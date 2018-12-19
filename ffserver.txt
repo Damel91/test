@@ -103,7 +103,8 @@ raspivid -o - -t 0 -hf -w 1280  -h 720 -fps 25 -b 1200000 -n | cvlc -vvv stream:
 
 sudo modprobe bcm2835-v4l2
 cvlc v4l2:///dev/video0 :v4l2-standard=ALL :input-slave=alsa://hw:0,0 :live-caching=300  ':sout=#transcode{vcodec=mp4v,vb=3500,width=1920,height=1080,acodec=mp3,ab=192,channels=2,samplerate=44100}:http{mux=ts,dst=:8080/}'
-
+chmod +x make_dirs.sh
+./make_dirs.sh
 
 
 
